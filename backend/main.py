@@ -16,26 +16,14 @@ _jobs = {}
 _jobs_lock = threading.Lock()
 
 
-def _origins():
-    origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
-    extra = os.getenv("FRONTEND_ORIGIN", "")
-    for item in extra.split(","):
-        item = item.strip().rstrip("/")
-        if not item:
-            continue
-        if not item.startswith("http"):
-            item = "https://" + item
-        origins.append(item)
-    return origins
-
+frontend_origin = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_origins(),
+    allow_origins=[frontend_origin],
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 class IndexReq(BaseModel):
     repo_url: str
