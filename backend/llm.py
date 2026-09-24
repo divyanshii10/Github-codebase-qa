@@ -20,10 +20,19 @@ Answer like a knowledgeable teammate talking directly to the person, not like a 
 - Never invent code, file names, or behavior not shown in the chunks."""
 
 
+MAX_CONTEXT_CHARS = 12000  # roughly ~3000 tokens, leaves room for the question + answer
+
+
 def answer(question, results):
-    context = "\n\n---\n\n".join(
-        f"[{m['path']}:{m['start']}-{m['end']}]\n{doc}" for doc, m in results
-    )
+    context = ""
+    used = []
+    for doc, m in results:
+        piece = f"[{m['path']}:{m['start']}-{m['end']}]\n{doc}\n\n---\n\n"
+        if len(context) + len(piece) > MAX_CONTEXT_CHARS:
+            break
+        context += piece
+        used.append((doc, m))
+
     resp = client.chat.completions.create(
         model=MODEL,
         max_tokens=1500,
@@ -32,8 +41,7 @@ def answer(question, results):
             {"role": "user", "content": f"Code chunks:\n\n{context}\n\nQuestion: {question}"},
         ],
     )
-    return resp.choices[0].message.content
-
+    return resp.choices[0].message.content, used
 
 if __name__ == "__main__":
     import sys

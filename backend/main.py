@@ -2,6 +2,7 @@ import os
 import threading
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -9,6 +10,7 @@ from ingest import clone_repo, list_files, repo_id_from_url
 from chunker import chunk_repo
 from store import save_chunks, search
 from llm import answer
+from agent import agent_answer, agent_answer_stream
 
 app = FastAPI()
 
@@ -93,10 +95,21 @@ def ask(req: AskReq):
     if job and job.get("status") == "indexing":
         raise HTTPException(status_code=409, detail="Indexing is still running")
     results = search(req.repo_id, req.question)
+    answer_text, used_results = answer(req.question, results)
     return {
-        "answer": answer(req.question, results),
+        "answer": answer_text,
         "sources": [
             {"path": m["path"], "start": m["start"], "end": m["end"]}
-            for _, m in results
+            for _, m in used_results
         ],
     }
+
+
+@app.post("/ask-agent")
+def ask_agent(req: AskReq):
+    with _jobs_lock:
+        job = _jobs.get(req.repo_id)
+    if job and job.get("status") == "indexing":
+        raise HTTPException(status_code=409, detail="Indexing is still running")
+    
+    return StreamingResponse(agent_answer_stream(req.repo_id, req.question), media_type="text/event-stream")
