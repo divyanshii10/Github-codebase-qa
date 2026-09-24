@@ -10,21 +10,105 @@ const SUGGESTIONS = [
   "What are the main features?",
 ];
 
+function AgentActivityIndicator({ steps, isFinished }) {
+  const [visibleMsg, setVisibleMsg] = useState("");
+  const [fading, setFading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const queueRef = useRef([]);
+  const displayingRef = useRef(false);
+  const currentMsgRef = useRef("");
+  const MIN_DISPLAY_MS = 900;
+
+  useEffect(() => {
+    if (!steps || steps.length === 0) return;
+    const latest = steps[steps.length - 1].message;
+    if (latest !== currentMsgRef.current) {
+      queueRef.current.push(latest);
+      drainQueue();
+    }
+  }, [steps]);
+
+  function drainQueue() {
+    if (displayingRef.current || queueRef.current.length === 0) return;
+    displayingRef.current = true;
+    const nextMsg = queueRef.current.length > 1
+      ? queueRef.current[queueRef.current.length - 1]
+      : queueRef.current[0];
+    queueRef.current = [];
+    currentMsgRef.current = nextMsg;
+    setFading(true);
+    setTimeout(() => {
+      setVisibleMsg(nextMsg);
+      setFading(false);
+      setTimeout(() => {
+        displayingRef.current = false;
+        if (queueRef.current.length > 0) drainQueue();
+      }, MIN_DISPLAY_MS);
+    }, 180);
+  }
+
+  if (!steps || steps.length === 0) return null;
+
+  if (isFinished) {
+    return (
+      <div className="agent-activity-done">
+        <div className="sources-toggle" onClick={() => setExpanded(!expanded)}>
+          {expanded ? "▾" : "▸"} Explored {steps.length} step{steps.length !== 1 ? "s" : ""}
+        </div>
+        {expanded && (
+          <div className="agent-activity-history">
+            {steps.map((s, i) => (
+              <div key={i} className="agent-history-item">
+                <span className="step-check">✓</span>
+                <span>{s.message}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="agent-activity">
+      <div className="agent-activity-row">
+        <span className="agent-activity-spinner"></span>
+        <span className={`agent-activity-text ${fading ? "agent-fade-out" : "agent-fade-in"}`}>
+          {visibleMsg || steps[0]?.message || "Thinking..."}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function SourcesBlock({ sources }) {
   const [open, setOpen] = useState(false);
   if (!sources || sources.length === 0) return null;
   return (
     <div className="sources">
       <div className="sources-toggle" onClick={() => setOpen(!open)}>
-        {open ? "▾" : "▸"} Sources · {sources.length} file{sources.length > 1 ? "s" : ""}
+        {open ? "▾" : "▸"} Sources · {sources.length} item{sources.length > 1 ? "s" : ""}
       </div>
       {open && (
         <div className="sources-list">
-          {sources.map((s, i) => (
-            <span className="source-chip" key={i}>
-              {s.path}:{s.start}-{s.end}
-            </span>
-          ))}
+          {sources.map((s, i) => {
+            if (s.tool) {
+              let label = s.tool;
+              if (s.tool === "search_code") label += `("${s.query}")`;
+              else if (s.tool === "read_file") label += `(${s.path}:${s.start_line || 1}-${s.end_line || '*'})`;
+              else if (s.tool === "grep") label += `("${s.pattern}")`;
+              return (
+                <span className="source-chip agent-chip" key={i}>
+                  {label}
+                </span>
+              );
+            }
+            return (
+              <span className="source-chip" key={i}>
+                {s.path}:{s.start}-{s.end}
+              </span>
+            );
+          })}
         </div>
       )}
     </div>
@@ -40,6 +124,7 @@ export default function App() {
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [mode, setMode] = useState("fast");
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -84,13 +169,62 @@ export default function App() {
     setQuestion("");
     setLoading(true);
     try {
-      const res = await fetch(`${API}/ask`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo_id: repoId, question: q }),
-      });
-      const data = await res.json();
-      setMessages((m) => [...m, { role: "assistant", text: data.answer, sources: data.sources }]);
+      if (mode === "fast") {
+        const res = await fetch(`${API}/ask`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repo_id: repoId, question: q }),
+        });
+        const data = await res.json();
+        setMessages((m) => [...m, { role: "assistant", text: data.answer, sources: data.sources }]);
+      } else {
+        const res = await fetch(`${API}/ask-agent`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repo_id: repoId, question: q }),
+        });
+        
+        setMessages((m) => [...m, { role: "assistant", text: "", sources: [], steps: [], isFinished: false }]);
+        
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let partial = "";
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          partial += decoder.decode(value, { stream: true });
+          const parts = partial.split("\n\n");
+          partial = parts.pop();
+          
+          for (const part of parts) {
+            if (part.startsWith("data: ")) {
+              try {
+                const data = JSON.parse(part.slice(6));
+                if (data.type === "step") {
+                  setMessages((m) => {
+                    const newM = [...m];
+                    const last = newM[newM.length - 1];
+                    last.steps = [...(last.steps || []), data];
+                    return newM;
+                  });
+                } else if (data.type === "answer") {
+                  setMessages((m) => {
+                    const newM = [...m];
+                    const last = newM[newM.length - 1];
+                    last.text = data.text;
+                    last.sources = data.sources;
+                    last.isFinished = true;
+                    return newM;
+                  });
+                }
+              } catch (e) {
+                console.error("SSE Parse Error", e);
+              }
+            }
+          }
+        }
+      }
     } catch {
       setMessages((m) => [...m, { role: "assistant", text: "Something went wrong answering that." }]);
     }
@@ -159,8 +293,9 @@ export default function App() {
             {messages.map((m, i) => (
               <div key={i} className={`msg-row ${m.role}`}>
                 <div className={`bubble ${m.role}`}>
-                  <ReactMarkdown>{m.text}</ReactMarkdown>
-                  {m.role === "assistant" && <SourcesBlock sources={m.sources} />}
+                  {m.role === "assistant" && m.steps && <AgentActivityIndicator steps={m.steps} isFinished={m.isFinished} />}
+                  {m.text && <ReactMarkdown>{m.text}</ReactMarkdown>}
+                  {m.role === "assistant" && m.sources && m.sources.length > 0 && <SourcesBlock sources={m.sources} />}
                 </div>
               </div>
             ))}
@@ -177,6 +312,10 @@ export default function App() {
       </div>
 
       <div className="composer-wrap">
+        <div className="mode-toggle">
+          <button className={`mode-btn ${mode === "fast" ? "active" : ""}`} onClick={() => setMode("fast")}>⚡ Fast</button>
+          <button className={`mode-btn ${mode === "agent" ? "active" : ""}`} onClick={() => setMode("agent")}>🧠 Agent</button>
+        </div>
         <div className="composer">
           <textarea
             ref={textareaRef}

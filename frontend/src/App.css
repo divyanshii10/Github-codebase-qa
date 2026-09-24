@@ -144,3 +144,101 @@ body {
 @media (max-width: 640px) {
   .bubble { max-width: 88%; }
 }
+
+/* Mode toggle */
+.mode-toggle {
+  max-width: 820px;
+  margin: 0 auto 12px;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+.mode-btn {
+  background: #161b22;
+  border: 1px solid #2a313c;
+  color: #8b93a1;
+  padding: 6px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+.mode-btn:hover {
+  background: #1f2630;
+}
+.mode-btn.active {
+  background: #1f6feb;
+  color: white;
+  border-color: #1f6feb;
+}
+.source-chip.agent-chip {
+  color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.2);
+}
+
+/* Agent activity indicator */
+.agent-activity {
+  margin-bottom: 10px;
+}
+.agent-activity-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+  overflow: hidden;
+}
+.agent-activity-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid #3b82f6;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+.agent-activity-text {
+  font-size: 13px;
+  color: #8b93a1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.agent-fade-in {
+  opacity: 1;
+  transform: translateY(0);
+}
+.agent-fade-out {
+  opacity: 0;
+  transform: translateY(6px);
+}
+
+/* Agent done / collapsed summary */
+.agent-activity-done {
+  margin-bottom: 10px;
+}
+.agent-activity-history {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.agent-history-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #6b7280;
+  padding: 2px 0;
+}
+.step-check {
+  color: #10b981;
+  font-weight: bold;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
